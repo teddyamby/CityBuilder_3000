@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CityBuilder 3000</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Bouton de toggle pour le menu -->
+    <button id="menu-toggle">☰</button>
+    
+    <!-- Interface utilisateur repliable -->
+    <div id="ui">
+        <div class="ui-content">
+            <!-- Section des ressources -->
+            <div id="resources">
+                <div class="resource">
+                    <span>💰</span>
+                    <span id="money">1000</span>
+                </div>
+                <div class="resource">
+                    <span>🔧</span>
+                    <span id="materials">500</span>
+                </div>
+                <div class="resource">
+                    <span>👥</span>
+                    <span id="population">0</span>
+                </div>
+            </div>
+            
+            <!-- Menu des bâtiments en grille -->
+            <div id="building-menu">
+                <h3>Construire</h3>
+                <div class="building-grid">
+                    <button class="building-btn" data-type="house">
+                        <span>🏠</span>
+                        <span>Maison</span>
+                    </button>
+                    <button class="building-btn" data-type="road">
+                        <span>🛣️</span>
+                        <span>Route</span>
+                    </button>
+                    <button class="building-btn" data-type="factory">
+                        <span>🏭</span>
+                        <span>Usine</span>
+                    </button>
+                    <button class="building-btn" data-type="powerplant">
+                        <span>⚡</span>
+                        <span>Centrale</span>
+                    </button>
+                    <button class="building-btn" data-type="school">
+                        <span>🏫</span>
+                        <span>École</span>
+                    </button>
+                    <button class="building-btn" data-type="apartment">
+                        <span>🏢</span>
+                        <span>Appartement</span>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Panneau d'information -->
+            <div id="info-panel">
+                <h3>Informations</h3>
+                <div id="info-content">
+                    <p><em>Sélectionnez un bâtiment pour commencer à construire votre ville</em></p>
+                    <div class="controls-info">
+                        <h4>Commandes</h4>
+                        <ul class="controls-list">
+                            <li>🖱️ Clic gauche : Sélectionner / Placer</li>
+                            <li>🖱️ Clic droit : Désélectionner</li>
+                            <li>🖱️ Clic sur bâtiment : Éditer</li>
+                            <li>🔄 Rotation : Clic gauche + glisser</li>
+                            <li>📦 Déplacement : Clic droit + glisser</li>
+                            <li>📜 Molette : Zoom</li>
+                            <li>⎋ Echap : Annuler</li>
+                        </ul>
+                    </div>
+                </div>
+                <button id="cancel-placement" class="cancel-btn">
+                    ✖ Annuler la construction
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="gameContainer"></div>
+    
+    <script type="module" src="main.js"></script>
+    <script>
+        // Gestion du menu déroulant
+        const menuToggle = document.getElementById('menu-toggle');
+        const ui = document.getElementById('ui');
+
+        menuToggle.addEventListener('click', () => {
+            ui.classList.toggle('active');
+            menuToggle.classList.toggle('active');
+            menuToggle.textContent = ui.classList.contains('active') ? '✕' : '☰';
+        });
+
+        // Fermer le menu en cliquant à l'extérieur
+        document.addEventListener('click', (e) => {
+            if (ui.classList.contains('active') && 
+                !ui.contains(e.target) && 
+                e.target !== menuToggle) {
+                ui.classList.remove('active');
+                menuToggle.classList.remove('active');
+                menuToggle.textContent = '☰';
+            }
+        });
+
+        // Fermer le menu avec la touche Échap
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && ui.classList.contains('active')) {
+                ui.classList.remove('active');
+                menuToggle.classList.remove('active');
+                menuToggle.textContent = '☰';
+            }
+        });
+
+        // Gestion de l'indicateur de scroll
+        ui.addEventListener('scroll', () => {
+            const isScrollable = ui.scrollHeight > ui.clientHeight;
+            const isAtBottom = ui.scrollTop + ui.clientHeight >= ui.scrollHeight - 10;
+            
+            if (isScrollable && !isAtBottom) {
+                ui.classList.add('scrollable');
+            } else {
+                ui.classList.remove('scrollable');
+            }
+        });
+    </script>
+</body>
+</html>
