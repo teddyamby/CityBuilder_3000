@@ -395,18 +395,35 @@ const BUILDING_CONFIG = {
 class ResourceManager {
     constructor(game) {
         this.game = game;
-        this.productionInterval = 5000; // 5 secondes
+        this.productionInterval = 5000; // 5 secondes pour les tests
+        this.buildingIncomeInterval = 300000; // 5 minutes pour le revenu des bâtiments
         this.lastProductionTime = Date.now();
+        this.lastBuildingIncomeTime = Date.now();
         this.employedCitizens = 0;
         this.availableJobs = 0;
         this.totalPopulation = 0;
+        this.maxPopulation = 0; // Population maximale possible
+        this.buildingEfficiencies = new Map();
         
         this.init();
+        
     }
 
     init() {
+        this.calculateMaxPopulation();
         this.calculateEmployment();
         this.calculatePopulation();
+    }
+
+    // Calculer la population maximale basée sur les capacités des bâtiments
+    calculateMaxPopulation() {
+        this.maxPopulation = 0;
+        this.game.buildingManager.buildings.forEach(building => {
+            const config = BUILDING_CONFIG[building.type];
+            if (config.residents) {
+                this.maxPopulation += config.residents;
+            }
+        });
     }
 
     calculateEmployment() {
@@ -420,35 +437,51 @@ class ResourceManager {
             }
         });
 
-        // Simuler l'emploi basé sur la population
+        // Limiter l'emploi à la population disponible
         this.employedCitizens = Math.min(this.totalPopulation, this.availableJobs);
     }
 
     calculatePopulation() {
         this.totalPopulation = 0;
+        this.calculateMaxPopulation(); // Recalculer la capacité maximale
+        
+        // La population actuelle ne peut pas dépasser la capacité maximale
+        let currentPopulation = 0;
         this.game.buildingManager.buildings.forEach(building => {
             const config = BUILDING_CONFIG[building.type];
             if (config.residents) {
-                this.totalPopulation += config.residents;
+                currentPopulation += config.residents;
             }
         });
+        
+        this.totalPopulation = Math.min(currentPopulation, this.maxPopulation);
+        
+        // Mettre à jour l'UI
+        this.game.uiManager.resources.population = this.totalPopulation;
     }
 
     update() {
         const currentTime = Date.now();
+        
+        // Production continue toutes les 5 secondes (pour les tests)
         if (currentTime - this.lastProductionTime >= this.productionInterval) {
-            this.produceResources();
+            this.produceContinuousResources();
             this.lastProductionTime = currentTime;
+        }
+        
+        // Revenu des bâtiments toutes les 5 minutes
+        if (currentTime - this.lastBuildingIncomeTime >= this.buildingIncomeInterval) {
+            this.produceBuildingIncome();
+            this.lastBuildingIncomeTime = currentTime;
         }
     }
 
-    produceResources() {
+    produceContinuousResources() {
         let totalProduction = {
             money: 0,
             materials: 0,
             energy: 0,
             water: 0,
-            population: 0,
             education: 0,
             happiness: 0,
             health: 0,
@@ -457,51 +490,68 @@ class ResourceManager {
         };
 
         let totalConsumption = {
-            money: 0,
-            materials: 0,
             energy: 0,
-            water: 0
+            water: 0,
+            materials: 0
         };
 
         // Calculer la production et consommation de chaque bâtiment
         this.game.buildingManager.buildings.forEach(building => {
             const config = BUILDING_CONFIG[building.type];
             const production = config.production;
+            const efficiency = this.getBuildingEfficiency(building.id);
             
-            // Ajouter la production
-            Object.keys(production).forEach(resource => {
-                if (typeof production[resource] === 'number') {
-                    totalProduction[resource] += production[resource];
-                }
-            });
-
-            // Gérer la consommation
-            if (production.consumption) {
-                Object.keys(production.consumption).forEach(resource => {
-                    totalConsumption[resource] += production.consumption[resource];
+            // Vérifier les limites d'employés pour les bâtiments industriels/commerciaux
+            if (config.production.jobs) {
+                const currentWorkers = building.workersAssigned || 0;
+                const maxWorkers = config.production.jobs;
+                const workerRatio = Math.min(currentWorkers / maxWorkers, 1);
+                
+                // Ajouter la production (avec efficacité et ratio de travailleurs)
+                Object.keys(production).forEach(resource => {
+                    if (typeof production[resource] === 'number' && resource !== 'jobs' && resource !== 'consumption') {
+                        totalProduction[resource] += production[resource] * efficiency * workerRatio;
+                    }
                 });
+
+                // Gérer la consommation (réduite si pas assez de travailleurs)
+                if (production.consumption) {
+                    Object.keys(production.consumption).forEach(resource => {
+                        totalConsumption[resource] += production.consumption[resource] * efficiency * workerRatio;
+                    });
+                }
+            } else {
+                // Pour les bâtiments sans employés (résidentiels, etc.)
+                Object.keys(production).forEach(resource => {
+                    if (typeof production[resource] === 'number' && resource !== 'jobs' && resource !== 'consumption') {
+                        totalProduction[resource] += production[resource] * efficiency;
+                    }
+                });
+
+                if (production.consumption) {
+                    Object.keys(production.consumption).forEach(resource => {
+                        totalConsumption[resource] += production.consumption[resource] * efficiency;
+                    });
+                }
             }
         });
 
-        // Appliquer les bonus/malus basés sur l'emploi et la population
+        // Revenu des emplois (basé sur le taux d'emploi réel)
         const employmentRate = this.availableJobs > 0 ? this.employedCitizens / this.availableJobs : 0;
-        const employmentBonus = employmentRate > 0.8 ? 1.2 : employmentRate > 0.5 ? 1.1 : 1.0;
-
-        // Calculer le revenu basé sur l'emploi
-        const incomeFromJobs = this.employedCitizens * 0.5;
+        const incomeFromJobs = this.employedCitizens * 2; // 2$ par employé
         totalProduction.money += incomeFromJobs;
 
-        // Appliquer les bonus
+        // Appliquer les bonus/malus
+        const employmentBonus = employmentRate > 0.8 ? 1.2 : employmentRate > 0.5 ? 1.1 : 1.0;
         totalProduction.money *= employmentBonus;
         totalProduction.materials *= employmentBonus;
 
-        // Soustraire la consommation
+        // Calculer les ressources nettes
         const netResources = {
-            money: totalProduction.money - totalConsumption.money,
-            materials: totalProduction.materials - totalConsumption.materials,
+            money: totalProduction.money,
+            materials: totalProduction.materials,
             energy: totalProduction.energy - totalConsumption.energy,
             water: totalProduction.water - totalConsumption.water,
-            population: totalProduction.population,
             education: totalProduction.education,
             happiness: totalProduction.happiness,
             health: totalProduction.health,
@@ -512,40 +562,176 @@ class ResourceManager {
         // Mettre à jour les ressources dans l'UI
         this.game.uiManager.updateResources(netResources);
 
-        // Mettre à jour les statistiques d'emploi et population
+        // Mettre à jour les statistiques
         this.calculateEmployment();
         this.calculatePopulation();
-
-        // Mettre à jour l'affichage des statistiques
         this.updateStatisticsDisplay();
+    }
+
+    produceBuildingIncome() {
+        let totalIncome = {
+            money: 0,
+            materials: 0
+        };
+
+        // Chaque bâtiment rapporte 10% de son coût de construction toutes les 5 minutes
+        this.game.buildingManager.buildings.forEach(building => {
+            const config = BUILDING_CONFIG[building.type];
+            const efficiency = this.getBuildingEfficiency(building.id);
+            
+            // 10% du coût de construction toutes les 5 minutes
+            const buildingIncome = {
+                money: config.cost.money * 0.1 * efficiency,
+                materials: config.cost.materials * 0.1 * efficiency
+            };
+            
+            totalIncome.money += buildingIncome.money;
+            totalIncome.materials += buildingIncome.materials;
+            
+            // Afficher un message pour les revenus importants
+            if (buildingIncome.money > 50) {
+                this.game.uiManager.showMessage(
+                    `${config.name} rapporte ${Math.round(buildingIncome.money)}💰 et ${Math.round(buildingIncome.materials)}🔧`,
+                    'success'
+                );
+            }
+        });
+
+        // Appliquer le revenu
+        this.game.uiManager.updateResources(totalIncome);
+        
+        if (totalIncome.money > 0 || totalIncome.materials > 0) {
+            this.game.uiManager.showMessage(
+                `Revenus des bâtiments: +${Math.round(totalIncome.money)}💰 +${Math.round(totalIncome.materials)}🔧`,
+                'info'
+            );
+        }
+    }
+
+    getBuildingEfficiency(buildingId) {
+        if (this.buildingEfficiencies.has(buildingId)) {
+            return this.buildingEfficiencies.get(buildingId);
+        }
+
+        const building = this.game.buildingManager.buildings.get(buildingId);
+        if (!building) return 0;
+
+        const config = BUILDING_CONFIG[building.type];
+        let efficiency = 1.0;
+
+        // Réduire l'efficacité si manque de ressources
+        const resources = this.game.uiManager.resources;
+        if (config.production.consumption) {
+            if (config.production.consumption.energy && resources.energy < 10) efficiency *= 0.7;
+            if (config.production.consumption.water && resources.water < 10) efficiency *= 0.7;
+            if (config.production.consumption.materials && resources.materials < 20) efficiency *= 0.8;
+        }
+
+        // Bonus d'efficacité pour les bâtiments avec employés
+        if (config.production.jobs) {
+            const currentWorkers = building.workersAssigned || 0;
+            const maxWorkers = config.production.jobs;
+            const employmentRate = maxWorkers > 0 ? currentWorkers / maxWorkers : 1;
+            efficiency *= employmentRate > 0.7 ? 1.2 : employmentRate > 0.4 ? 1.0 : 0.7;
+        }
+
+        this.buildingEfficiencies.set(buildingId, efficiency);
+        return efficiency;
     }
 
     updateStatisticsDisplay() {
         const statsPanel = document.getElementById('statistics-panel');
-        if (statsPanel) {
-            const employmentRate = this.availableJobs > 0 ? 
-                Math.round((this.employedCitizens / this.availableJobs) * 100) : 0;
+        if (!statsPanel) return;
 
-            statsPanel.innerHTML = `
-                <h4>📊 Statistiques de la Ville</h4>
-                <div class="stat-item">
-                    <span>👥 Population:</span>
-                    <span>${this.totalPopulation}</span>
-                </div>
-                <div class="stat-item">
-                    <span>💼 Emplois:</span>
-                    <span>${this.employedCitizens}/${this.availableJobs}</span>
-                </div>
-                <div class="stat-item">
-                    <span>📈 Taux d'emploi:</span>
-                    <span>${employmentRate}%</span>
-                </div>
-                <div class="stat-item">
-                    <span>🏢 Bâtiments:</span>
-                    <span>${this.game.buildingManager.buildings.size}</span>
-                </div>
-            `;
-        }
+        const employmentRate = this.availableJobs > 0 ? 
+            Math.round((this.employedCitizens / this.availableJobs) * 100) : 0;
+        
+        const totalBuildings = this.game.buildingManager.buildings.size;
+        const totalRevenue = this.calculateTotalRevenue();
+
+        statsPanel.innerHTML = `
+            <h4 style="margin: 0 0 12px 0; border-bottom: 1px solid #4a5568; padding-bottom: 8px;">📊 Statistiques de la Ville</h4>
+            <div class="stat-item" style="display: flex; justify-content: space-between; margin: 6px 0;">
+                <span>👥 Population:</span>
+                <span style="font-weight: bold;">${this.totalPopulation}/${this.maxPopulation}</span>
+            </div>
+            <div class="stat-item" style="display: flex; justify-content: space-between; margin: 6px 0;">
+                <span>💼 Emplois:</span>
+                <span style="font-weight: bold;">${this.employedCitizens}/${this.availableJobs}</span>
+            </div>
+            <div class="stat-item" style="display: flex; justify-content: space-between; margin: 6px 0;">
+                <span>📈 Taux d'emploi:</span>
+                <span style="font-weight: bold; color: ${employmentRate > 80 ? '#4cd964' : employmentRate > 50 ? '#ffd93d' : '#ff6b6b'}">
+                    ${employmentRate}%
+                </span>
+            </div>
+            <div class="stat-item" style="display: flex; justify-content: space-between; margin: 6px 0;">
+                <span>🏢 Bâtiments:</span>
+                <span style="font-weight: bold;">${totalBuildings}</span>
+            </div>
+            <div class="stat-item" style="display: flex; justify-content: space-between; margin: 6px 0;">
+                <span>💰 Revenu/h:</span>
+                <span style="font-weight: bold; color: #4cd964">${Math.round(totalRevenue.money * 12)}💰</span>
+            </div>
+            <div class="stat-item" style="display: flex; justify-content: space-between; margin: 6px 0;">
+                <span>🔧 Production/h:</span>
+                <span style="font-weight: bold; color: #4cd964">${Math.round(totalRevenue.materials * 12)}🔧</span>
+            </div>
+            <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #4a5568; font-size: 12px; opacity: 0.8;">
+                ⏰ Revenus: 10% du coût/5min<br>
+                💰 Remboursement: 50% à la suppression
+            </div>
+        `;
+    }
+
+    calculateTotalRevenue() {
+        let totalMoney = 0;
+        let totalMaterials = 0;
+
+        this.game.buildingManager.buildings.forEach(building => {
+            const config = BUILDING_CONFIG[building.type];
+            const efficiency = this.getBuildingEfficiency(building.id);
+            
+            // Revenu de base du bâtiment
+            if (config.production.money) {
+                totalMoney += config.production.money * efficiency;
+            }
+            if (config.production.materials) {
+                totalMaterials += config.production.materials * efficiency;
+            }
+            
+            // Revenu des emplois (approximation)
+            if (config.production.jobs) {
+                const currentWorkers = building.workersAssigned || 0;
+                totalMoney += currentWorkers * 0.5 * efficiency;
+            }
+            
+            // Revenu du coût de construction (10% toutes les 5 minutes = 12 fois par heure)
+            totalMoney += (config.cost.money * 0.1) * 12 * efficiency;
+            totalMaterials += (config.cost.materials * 0.1) * 12 * efficiency;
+        });
+
+        return {
+            money: totalMoney,
+            materials: totalMaterials
+        };
+    }
+
+    // Méthode pour rembourser 50% du coût lors de la suppression
+    refundBuilding(buildingType) {
+        const config = BUILDING_CONFIG[buildingType];
+        const refund = {
+            money: Math.round(config.cost.money * 0.5),
+            materials: Math.round(config.cost.materials * 0.5)
+        };
+        
+        this.game.uiManager.updateResources(refund);
+        this.game.uiManager.showMessage(
+            `Remboursement: +${refund.money}💰 +${refund.materials}🔧`,
+            'success'
+        );
+        
+        return refund;
     }
 
     canBuild(buildingType) {
@@ -556,16 +742,9 @@ class ResourceManager {
                resources.materials >= config.cost.materials;
     }
 
-    getBuildingEfficiency(buildingType) {
-        // Calculer l'efficacité d'un bâtiment basée sur les ressources disponibles
-        const resources = this.game.uiManager.resources;
-        let efficiency = 1.0;
-
-        // Réduire l'efficacité si manque d'énergie ou d'eau
-        if (resources.energy < 10) efficiency *= 0.7;
-        if (resources.water < 10) efficiency *= 0.7;
-
-        return efficiency;
+    // Vérifier si on peut ajouter des habitants (pour les bâtiments résidentiels)
+    canAddResidents(additionalResidents) {
+        return (this.totalPopulation + additionalResidents) <= this.maxPopulation;
     }
 }
 
@@ -1448,28 +1627,33 @@ class EntityManager {
 
     assignWorkersToBuildings(buildingManager) {
         let workersAssigned = 0;
+        const availableWorkers = Array.from(this.entities.values())
+            .filter(e => e.type === 'person' && !e.isWorking && e.state === 'idle');
         
+        // Réinitialiser le compteur de travailleurs pour tous les bâtiments
+        buildingManager.buildings.forEach(building => {
+            building.workersAssigned = 0;
+        });
+        
+        // Assigner les travailleurs en respectant les limites de chaque bâtiment
         buildingManager.buildings.forEach(building => {
             const config = BUILDING_CONFIG[building.type];
-            if (config.production.jobs && !building.workersAssigned) {
-                // Assigner des travailleurs à ce bâtiment
-                const workersNeeded = config.production.jobs;
-                const availableWorkers = Array.from(this.entities.values())
-                    .filter(e => e.type === 'person' && !e.isWorking && e.state === 'idle')
-                    .slice(0, workersNeeded);
+            if (config.production.jobs && building.workersAssigned < config.production.jobs) {
+                const workersNeeded = config.production.jobs - building.workersAssigned;
+                const workersToAssign = availableWorkers.splice(0, workersNeeded);
                 
-                availableWorkers.forEach(worker => {
+                workersToAssign.forEach(worker => {
                     worker.isWorking = true;
                     this.moveEntity(worker.id, building.x, building.z);
+                    building.workersAssigned = (building.workersAssigned || 0) + 1;
                     workersAssigned++;
                 });
-                
-                building.workersAssigned = true;
             }
         });
         
         return workersAssigned;
     }
+    
 }
 
 class AdvancedCameraController {
@@ -2286,14 +2470,19 @@ class BuildingManager {
     removeBuilding(buildingId) {
         const building = this.buildings.get(buildingId);
         if (building) {
+            // Rembourser 50% du coût de construction
+            if (this.uiManager.game && this.uiManager.game.resourceManager) {
+                this.uiManager.game.resourceManager.refundBuilding(building.type);
+            }
+            
             this.scene.remove(building.mesh);
             this.gridSystem.freeCell(building.x, building.z, building.gridWidth, building.gridDepth);
             this.buildings.delete(buildingId);
             
-            // Mettre à jour les statistiques
             if (this.uiManager.game && this.uiManager.game.resourceManager) {
                 this.uiManager.game.resourceManager.calculateEmployment();
                 this.uiManager.game.resourceManager.calculatePopulation();
+                this.uiManager.game.resourceManager.updateStatisticsDisplay();
             }
             
             this.socket.emit('removeBuilding', {
@@ -2303,6 +2492,7 @@ class BuildingManager {
         }
     }
 
+    
     startEditBuilding(buildingId) {
         const building = this.buildings.get(buildingId);
         if (building) {
@@ -2440,7 +2630,93 @@ class UIManager {
             research: 0
         };
         this.currentCategory = 'all';
+        this.resetToDefaultResources();
+        this.setupStatisticsToggle();
+        this.setupQuestsToggle();
         this.init();
+    }
+    setupQuestsToggle() {
+        // Créer le bouton de bascule des quêtes
+        const toggleButton = document.createElement('button');
+        toggleButton.id = 'toggle-quests';
+        toggleButton.innerHTML = '🎯 Afficher les Quêtes';
+        toggleButton.style.cssText = `
+            position: fixed;
+            top: 120px;
+            left: 20px;
+            background: #2d3748;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            z-index: 101;
+            font-size: 14px;
+            transition: all 0.3s;
+        `;
+
+        // Créer le panneau des quêtes
+        const questsPanel = document.createElement('div');
+        questsPanel.id = 'quests-panel';
+        questsPanel.style.cssText = `
+            position: fixed;
+            top: 160px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 16px;
+            border-radius: 8px;
+            z-index: 100;
+            min-width: 300px;
+            max-width: 400px;
+            max-height: 500px;
+            overflow-y: auto;
+            backdrop-filter: blur(10px);
+            border: 2px solid #4a5568;
+            display: none;
+        `;
+
+        toggleButton.addEventListener('click', () => {
+            const panel = document.getElementById('quests-panel');
+            if (panel.style.display === 'none' || panel.style.display === '') {
+                panel.style.display = 'block';
+                toggleButton.innerHTML = '🎯 Masquer les Quêtes';
+                toggleButton.style.background = '#4a5568';
+                // Mettre à jour l'affichage quand on ouvre
+                if (this.game && this.game.questManager) {
+                    this.game.questManager.updateQuestDisplay();
+                }
+            } else {
+                panel.style.display = 'none';
+                toggleButton.innerHTML = '🎯 Afficher les Quêtes';
+                toggleButton.style.background = '#2d3748';
+            }
+        });
+
+        document.body.appendChild(toggleButton);
+        document.body.appendChild(questsPanel);
+    }
+    
+    updateQuestDisplay() {
+        if (this.game && this.game.questManager) {
+            this.game.questManager.updateQuestDisplay();
+        }
+    }
+
+
+    resetToDefaultResources() {
+        this.resources = {
+            money: 2000,
+            materials: 1000,
+            population: 0,
+            energy: 50,
+            water: 50,
+            education: 0,
+            happiness: 50,
+            health: 50,
+            safety: 50,
+            research: 0
+        };
     }
 
     init() {
@@ -2450,6 +2726,66 @@ class UIManager {
         this.setupPathfindingControls();
         this.setupSaveLoadControls();
         this.setupStatisticsPanel();
+        this.setupStatisticsToggle();
+    }
+
+        setupStatisticsToggle() {
+        // Créer le bouton de bascule des statistiques
+        const toggleButton = document.createElement('button');
+        toggleButton.id = 'toggle-stats';
+        toggleButton.innerHTML = '📊 Afficher les Statistiques';
+        toggleButton.style.cssText = `
+            position: fixed;
+            top: 80px;
+            left: 20px;
+            background: #2d3748;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            z-index: 101;
+            font-size: 14px;
+            transition: all 0.3s;
+        `;
+
+        // Créer le panneau de statistiques
+        const statsPanel = document.createElement('div');
+        statsPanel.id = 'statistics-panel';
+        statsPanel.style.cssText = `
+            position: fixed;
+            top: 120px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 16px;
+            border-radius: 8px;
+            z-index: 100;
+            min-width: 250px;
+            backdrop-filter: blur(10px);
+            border: 2px solid #4a5568;
+            display: none;
+        `;
+
+        toggleButton.addEventListener('click', () => {
+            const panel = document.getElementById('statistics-panel');
+            if (panel.style.display === 'none' || panel.style.display === '') {
+                panel.style.display = 'block';
+                toggleButton.innerHTML = '📊 Masquer les Statistiques';
+                toggleButton.style.background = '#4a5568';
+                // Mettre à jour l'affichage quand on ouvre
+                if (this.game && this.game.resourceManager) {
+                    this.game.resourceManager.updateStatisticsDisplay();
+                }
+            } else {
+                panel.style.display = 'none';
+                toggleButton.innerHTML = '📊 Afficher les Statistiques';
+                toggleButton.style.background = '#2d3748';
+            }
+        });
+
+        document.body.appendChild(toggleButton);
+        document.body.appendChild(statsPanel);
     }
 
     setupStatisticsPanel() {
@@ -3069,6 +3405,7 @@ class EnhancedCityBuilderGame {
         this.resourceManager = null;
         
         this.init();
+        this.clearSavesOnRefresh();
     }
 
     init() {
@@ -3086,6 +3423,23 @@ class EnhancedCityBuilderGame {
         } catch (error) {
             this.errorManager.logError('Game initialization', error, 'error');
         }
+    }
+
+        clearSavesOnRefresh() {
+        // Supprimer toutes les sauvegardes existantes au chargement de la page
+        const savesToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith('citybuilder_')) {
+                savesToRemove.push(key);
+            }
+        }
+        
+        savesToRemove.forEach(key => {
+            localStorage.removeItem(key);
+        });
+        
+        console.log('Sauvegardes nettoyées, retour aux valeurs initiales');
     }
 
     initThreeJS() {
@@ -3142,6 +3496,24 @@ class EnhancedCityBuilderGame {
         terrain.rotation.x = -Math.PI / 2;
         terrain.receiveShadow = true;
         this.scene.add(terrain);
+    }
+
+        init() {
+        try {
+            this.initThreeJS();
+            this.initSocket();
+            this.initManagers();
+            this.initEventListeners();
+            this.setupQuestPanel();
+            this.animate();
+            
+            // Ne PAS charger de sauvegarde automatique au démarrage
+            // this.saveManager.startAutoSave();
+            // this.saveManager.loadGame('autosave');
+            
+        } catch (error) {
+            this.errorManager.logError('Game initialization', error, 'error');
+        }
     }
 
     initSocket() {

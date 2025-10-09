@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # Base de données MongoDB
+  db:
+    image: mongo:latest
+    container_name: citybuilder_db
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - citybuilder_network
+
+  # Cache temps réel Redis
+  cache:
+    image: redis:alpine
+    container_name: citybuilder_cache
+    restart: always
+    networks:
+      - citybuilder_network
+
+  # Serveur Node.js (Backend)
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: citybuilder_server
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # IMPORTANT : 'db' est le nom du service Docker Compose, pas localhost
+      MONGO_URI: mongodb://db:27017/citybuilder3000 
+      REDIS_HOST: cache
+      REDIS_PORT: 6379
+    depends_on:
+      - db
+      - cache
+    networks:
+      - citybuilder_network
+
+  # Client Nginx (Frontend)
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: citybuilder_client
+    restart: always
+    ports:
+      # Port 80 exposé publiquement. Le jeu sera accessible ici.
+      - "80:80" 
+    depends_on:
+      - server
+    networks:
+      - citybuilder_network
+
+# Définition des réseaux et des volumes persistants
+networks:
+  citybuilder_network:
+    driver: bridge # Réseau isolé pour la communication interne
+
+volumes:
+  mongo_data: # Volume pour conserver les données de la base de données
