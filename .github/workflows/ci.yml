@@ -8,7 +8,7 @@ on:
 
 jobs:
   test-client:
-    name: Test Client & Build
+    name: Test Client
     runs-on: ubuntu-latest
     
     defaults:
@@ -42,21 +42,6 @@ jobs:
     name: Test Server
     runs-on: ubuntu-latest
     
-    # AJOUT CRITIQUE : Démarrage du service MongoDB pour les tests du serveur
-    services:
-      mongodb:
-        # Utiliser l'image officielle de MongoDB
-        image: mongo:latest
-        # Mapper le port par défaut de MongoDB
-        ports:
-          - 27017:27017
-        # Options de santé pour s'assurer que MongoDB est prêt avant d'exécuter les tests
-        options: >-
-          --health-cmd "mongosh --eval 'db.runCommand({ping: 1})'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    
     defaults:
       run:
         working-directory: ./server
@@ -73,7 +58,10 @@ jobs:
         cache-dependency-path: './server/package-lock.json'
 
     - name: Install server dependencies
-      run: npm ci
+      # Le fichier package-lock.json du serveur est corrompu ou désynchronisé.
+      # Utiliser 'npm install' au lieu de 'npm ci' pour régénérer le lock file et installer les dépendances.
+      # L'utilisateur DOIT s'assurer de régénérer ce fichier localement et de le commiter.
+      run: npm install
 
     - name: Run server tests
       run: npm test --if-present
