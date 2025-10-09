@@ -43,8 +43,11 @@ mongoose.connect('mongodb://localhost:27017/citybuilder3000', {
   useUnifiedTopology: true
 });
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> 6861acf8b1e6576a4c0888c3e942d1d9c0cadfcf
 // Schémas et modèles
 const buildingSchema = new mongoose.Schema({
   id: String,
