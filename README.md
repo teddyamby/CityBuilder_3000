@@ -6,7 +6,6 @@ Un jeu de construction de ville en temps réel avec Three.js et Socket.io.
 
 - Construction de bâtiments en 3D
 - Gestion des ressources (argent, matériaux, population)
-- Multijoueur en temps réel
 - Interface utilisateur intuitive
 - Système de grille pour le placement
 
