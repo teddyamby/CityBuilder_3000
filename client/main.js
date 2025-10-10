@@ -650,7 +650,7 @@ class ResourceManager {
         const totalRevenue = this.calculateTotalRevenue();
 
         statsPanel.innerHTML = `
-            <h4 style="margin: 0 0 12px 0; border-bottom: 1px solid #4a5568; padding-bottom: 8px;">📊 Statistiques de la Ville</h4>
+            <h4 style="margin: 0 0 12px 0; border-bottom: 1px solid #4a5568; padding-bottom: 8px;">📊</h4>
             <div class="stat-item" style="display: flex; justify-content: space-between; margin: 6px 0;">
                 <span>👥 Population:</span>
                 <span style="font-weight: bold;">${this.totalPopulation}/${this.maxPopulation}</span>
@@ -1211,8 +1211,7 @@ class QuestManager {
     updateQuestDisplay() {
         const questPanel = document.getElementById('quest-panel');
         if (!questPanel) return;
-        
-        let html = '<h3>🎯 Quêtes</h3>';
+    
         
         if (this.activeQuests.size === 0) {
             html += '<p>Aucune quête active</p>';
